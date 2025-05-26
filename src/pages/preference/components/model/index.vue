@@ -16,15 +16,19 @@ const modelStore = useModelStore()
 async function handleDelete(item: Model) {
   const { id, path } = item
 
-  await remove(path, { recursive: true })
+  try {
+    await remove(path, { recursive: true })
 
-  modelStore.models = modelStore.models.filter(item => item.id !== id)
+    message.success('删除成功')
+  } catch (error) {
+    message.error(String(error))
+  } finally {
+    modelStore.models = modelStore.models.filter(item => item.id !== id)
 
-  if (id === modelStore.currentModel?.id) {
-    modelStore.currentModel = modelStore.models[0]
+    if (id === modelStore.currentModel?.id) {
+      modelStore.currentModel = modelStore.models[0]
+    }
   }
-
-  message.success('删除成功')
 }
 </script>
 
@@ -46,7 +50,7 @@ async function handleDelete(item: Model) {
         <template #cover>
           <img
             alt="example"
-            :src="convertFileSrc(join(item.path, 'resources', 'preview.png'))"
+            :src="convertFileSrc(join(item.path, 'resources', 'cover.png'))"
           >
         </template>
 

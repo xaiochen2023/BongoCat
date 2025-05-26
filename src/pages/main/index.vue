@@ -3,18 +3,19 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { Menu } from '@tauri-apps/api/menu'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useDebounceFn, useEventListener } from '@vueuse/core'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 
 import { useDevice } from '@/composables/useDevice'
 import { useModel } from '@/composables/useModel'
 import { useSharedMenu } from '@/composables/useSharedMenu'
+import { setAlwaysOnTop } from '@/plugins/window'
 import { useCatStore } from '@/stores/cat'
 import { useModelStore } from '@/stores/model'
 import { join } from '@/utils/path'
 
 const appWindow = getCurrentWebviewWindow()
 const { pressedMouses, mousePosition, pressedLeftKeys, pressedRightKeys } = useDevice()
-const { handleDestroy, handleResize, handleMouseDown, handleMouseMove, handleKeyDown } = useModel()
+const { backgroundImage, handleDestroy, handleResize, handleMouseDown, handleMouseMove, handleKeyDown } = useModel()
 const catStore = useCatStore()
 const { getSharedMenu } = useSharedMenu()
 const modelStore = useModelStore()
@@ -51,11 +52,7 @@ watch(() => catStore.penetrable, (value) => {
   appWindow.setIgnoreCursorEvents(value)
 }, { immediate: true })
 
-const backgroundImage = computed(() => {
-  if (!modelStore.currentModel) return
-
-  return convertFileSrc(join(modelStore.currentModel.path, 'resources', 'background.png'))
-})
+watch(() => catStore.alwaysOnTop, setAlwaysOnTop, { immediate: true })
 
 function handleWindowDrag() {
   appWindow.startDragging()
@@ -72,9 +69,7 @@ async function handleContextmenu(event: MouseEvent) {
 }
 
 function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
-  if (!modelStore.currentModel) return
-
-  return convertFileSrc(join(modelStore.currentModel.path, 'resources', `${side}-keys`, `${key}.png`))
+  return convertFileSrc(join(modelStore.currentModel!.path, 'resources', `${side}-keys`, `${key}.png`))
 }
 </script>
 
