@@ -1,8 +1,7 @@
 use tauri::{AppHandle, Emitter, EventTarget, WebviewWindow};
 use tauri_nspanel::{
-    WebviewWindowExt,
     cocoa::appkit::{NSMainMenuWindowLevel, NSWindowCollectionBehavior},
-    panel_delegate,
+    panel_delegate, WebviewWindowExt,
 };
 use tauri_plugin_custom_window::MAIN_WINDOW_LABEL;
 

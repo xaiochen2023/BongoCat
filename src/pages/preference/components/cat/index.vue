@@ -18,10 +18,7 @@ function opacityFormatter(value?: number) {
 
 <template>
   <ProList title="模型设置">
-    <ProListItem
-      description="启用后，模型将水平镜像翻转"
-      title="镜像模式"
-    >
+    <ProListItem title="镜像模式">
       <Switch v-model:checked="catStore.mirrorMode" />
     </ProListItem>
 
@@ -31,13 +28,6 @@ function opacityFormatter(value?: number) {
     >
       <Switch v-model:checked="catStore.singleMode" />
     </ProListItem>
-
-    <ProListItem
-      description="启用后，鼠标将镜像跟随手部移动"
-      title="鼠标镜像"
-    >
-      <Switch v-model:checked="catStore.mouseMirror" />
-    </ProListItem>
   </ProList>
 
   <ProList title="窗口设置">
@@ -46,13 +36,6 @@ function opacityFormatter(value?: number) {
       title="窗口穿透"
     >
       <Switch v-model:checked="catStore.penetrable" />
-    </ProListItem>
-
-    <ProListItem
-      description="启用后，窗口始终显示在其他应用程序上方"
-      title="窗口置顶"
-    >
-      <Switch v-model:checked="catStore.alwaysOnTop" />
     </ProListItem>
 
     <ProListItem
