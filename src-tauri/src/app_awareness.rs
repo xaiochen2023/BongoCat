@@ -1,22 +1,49 @@
+use serde::{Deserialize, Serialize}; // Added
+use std::collections::HashMap; // For simple precedence
+use std::fs; // Added for reading config file
+use std::path::PathBuf; // Added for path resolution
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, System, SystemExt};
-use tauri::Manager; // Required for app_handle().emit_all
+use tauri::Manager;
 
-// Define the state that will be shared between threads
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AppDefinition {
+    pub name: String,
+    pub reaction_key: String,
+    pub processes_win: Vec<String>,
+    pub processes_mac: Vec<String>,
+    pub processes_linux: Option<Vec<String>>,
+}
+
+// Updated DetectedApp Enum
 #[derive(Clone, Debug, PartialEq)]
 pub enum DetectedApp {
     Music,
     Game,
+    Email, // Added
+    Notes, // Added
     None,
 }
 
 impl DetectedApp {
+    fn from_reaction_key(key: &str) -> Self {
+        match key {
+            "music" => DetectedApp::Music,
+            "game" => DetectedApp::Game,
+            "email" => DetectedApp::Email,
+            "notes" => DetectedApp::Notes,
+            _ => DetectedApp::None,
+        }
+    }
+
     fn as_str(&self) -> Option<String> {
         match self {
             DetectedApp::Music => Some("music".to_string()),
             DetectedApp::Game => Some("game".to_string()),
+            DetectedApp::Email => Some("email".to_string()), // Added
+            DetectedApp::Notes => Some("notes".to_string()), // Added
             DetectedApp::None => None,
         }
     }
@@ -24,89 +51,134 @@ impl DetectedApp {
 
 pub type SharedDetectedAppState = Arc<Mutex<DetectedApp>>;
 
-// Changed signature to accept app_state
+fn load_app_definitions<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Vec<AppDefinition> {
+    let config_path = app_handle
+        .path()
+        .resolve("app_awareness_config.json", tauri::path::BaseDirectory::Resource) // Assuming config is in src-tauri/ and bundled as a resource
+        .unwrap_or_else(|_| {
+            // Fallback if resolve_path fails (e.g. in tests or different context)
+            // This path is relative to where the executable is run from if not bundled.
+            // For bundled app, BaseDirectory::Resource is more reliable.
+            PathBuf::from("app_awareness_config.json") 
+        });
+
+    println!("Attempting to load app definitions from: {:?}", config_path);
+
+    match fs::read_to_string(config_path) {
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(definitions) => {
+                println!("Successfully loaded app definitions from JSON.");
+                return definitions;
+            }
+            Err(e) => {
+                eprintln!("Failed to parse app_awareness_config.json: {}. Using hardcoded fallbacks.", e);
+            }
+        },
+        Err(e) => {
+            eprintln!("Failed to read app_awareness_config.json: {}. Using hardcoded fallbacks.", e);
+        }
+    }
+
+    // Hardcoded fallbacks
+    println!("Using hardcoded app definitions.");
+    vec![
+        AppDefinition {
+            name: "Spotify Music (Fallback)".to_string(), reaction_key: "music".to_string(),
+            processes_win: vec!["Spotify.exe".to_string(), "spotifywebhelper.exe".to_string()],
+            processes_mac: vec!["Spotify".to_string()],
+            processes_linux: Some(vec!["spotify".to_string()]),
+        },
+        AppDefinition {
+            name: "Steam Games (Fallback)".to_string(), reaction_key: "game".to_string(),
+            processes_win: vec!["steam.exe".to_string(), "Steam.exe".to_string()],
+            processes_mac: vec!["Steam".to_string(), "steam_osx".to_string()],
+            processes_linux: Some(vec!["steam".to_string()]),
+        },
+        AppDefinition {
+            name: "Microsoft Outlook (Fallback)".to_string(), reaction_key: "email".to_string(),
+            processes_win: vec!["OUTLOOK.EXE".to_string()],
+            processes_mac: vec!["Microsoft Outlook".to_string()],
+            processes_linux: None,
+        },
+        AppDefinition {
+            name: "Obsidian Notes (Fallback)".to_string(), reaction_key: "notes".to_string(),
+            processes_win: vec!["Obsidian.exe".to_string()],
+            processes_mac: vec!["Obsidian".to_string()],
+            processes_linux: None,
+        },
+    ]
+}
+
+
 pub fn init_app_awareness<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, app_state: SharedDetectedAppState) {
-    // Removed local creation of shared_state, app_state is now passed in.
-    // The clone is still needed for the thread.
     let shared_state_clone = app_state.clone();
+    let app_handle_clone = app_handle.clone(); // Clone app_handle for the thread
 
     thread::spawn(move || {
+        let app_definitions = load_app_definitions(&app_handle_clone);
         let mut sys = System::new_all();
+        // Define precedence: lower number = higher precedence
+        let precedence: HashMap<String, u8> = [
+            ("game".to_string(), 0),
+            ("music".to_string(), 1),
+            ("email".to_string(), 2),
+            ("notes".to_string(), 3),
+        ].iter().cloned().collect();
+
         loop {
             sys.refresh_processes();
-            let mut music_found = false;
-            let mut game_found = false;
+            let mut best_detected_app_key: Option<String> = None;
+            let mut current_min_precedence = u8::MAX;
 
-            for (_pid, process) in sys.processes() {
-                let process_name = process.name().to_lowercase();
-
-                // Simple checks, can be made more robust
-                // For macOS, check for bundle names if possible or typical process names
-                // For Windows, check for .exe names
-                // For Linux, check for process names
-                
-                // Spotify checks
-                if cfg!(target_os = "windows") {
-                    if process_name.contains("spotify.exe") {
-                        music_found = true;
-                    }
+            for app_def in &app_definitions {
+                let target_processes = if cfg!(target_os = "windows") {
+                    &app_def.processes_win
                 } else if cfg!(target_os = "macos") {
-                    if process_name.contains("spotify") { // Process name on macOS is often just "Spotify"
-                        music_found = true;
-                    }
-                } else { // Linux and other Unix-like
-                    if process_name.contains("spotify") {
-                         music_found = true;
-                    }
-                }
+                    &app_def.processes_mac
+                } else {
+                    app_def.processes_linux.as_ref().unwrap_or(&Vec::new())
+                };
 
-                // Steam checks
-                if cfg!(target_os = "windows") {
-                    if process_name.contains("steam.exe") {
-                        game_found = true;
+                for running_process in sys.processes().values() {
+                    let running_process_name = running_process.name().to_lowercase();
+                    for target_name in target_processes {
+                        if running_process_name.contains(&target_name.to_lowercase()) {
+                            let app_precedence = precedence.get(&app_def.reaction_key).cloned().unwrap_or(u8::MAX);
+                            if app_precedence < current_min_precedence {
+                                current_min_precedence = app_precedence;
+                                best_detected_app_key = Some(app_def.reaction_key.clone());
+                            }
+                            break; // Found a match for this AppDefinition, move to next AppDefinition
+                        }
                     }
-                } else if cfg!(target_os = "macos") {
-                     // On macOS, Steam has multiple helper processes. "steam_osx" or "steam" might be main.
-                    if process_name.contains("steam") { // Main process can be "steam" or "steam_osx"
-                        game_found = true;
-                    }
-                } else { // Linux
-                    if process_name.contains("steam") {
-                        game_found = true;
+                    if best_detected_app_key.as_ref().map_or(false, |k| k == &app_def.reaction_key) && 
+                       precedence.get(&app_def.reaction_key).cloned().unwrap_or(u8::MAX) == current_min_precedence {
+                        // If we already found the highest precedence match for this app_def, no need to check other running processes for it
+                        break; 
                     }
                 }
             }
-
-            let current_app_type = if game_found { // Game takes precedence
-                DetectedApp::Game
-            } else if music_found {
-                DetectedApp::Music
-            } else {
-                DetectedApp::None
-            };
             
-            // Use the passed-in app_state (via shared_state_clone)
+            let final_detected_app = best_detected_app_key
+                .map_or(DetectedApp::None, |key| DetectedApp::from_reaction_key(&key));
+
             let mut current_state_guard = shared_state_clone.lock().unwrap();
-            if *current_state_guard != current_app_type {
-                println!("App detection state changed to: {:?}", current_app_type.as_str()); // For debug
-                *current_state_guard = current_app_type.clone();
-                // Emit event to frontend using app_handle
-                if let Err(e) = app_handle.emit_all("app_detection_change", current_app_type.as_str()) {
+            if *current_state_guard != final_detected_app {
+                println!("App detection state changed to: {:?}", final_detected_app.as_str());
+                *current_state_guard = final_detected_app.clone();
+                if let Err(e) = app_handle_clone.emit_all("app_detection_change", final_detected_app.as_str()) {
                     eprintln!("Failed to emit app_detection_change event: {}", e);
                 }
             }
-            drop(current_state_guard); // Release lock before sleep
+            drop(current_state_guard);
 
-            thread::sleep(Duration::from_secs(5)); // Check every 5 seconds
+            thread::sleep(Duration::from_secs(5));
         }
     });
 }
 
-// Tauri command to get current state for debugging
 #[tauri::command]
 pub fn get_detected_app_debug(state: tauri::State<SharedDetectedAppState>) -> Option<String> {
-    // Access the managed state directly
     let current_app = state.inner().lock().unwrap();
-    // Use as_str() method from DetectedApp enum
     current_app.as_str()
 }

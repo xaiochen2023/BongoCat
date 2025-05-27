@@ -1,0 +1,28 @@
+[
+  {
+    "name": "Spotify Music", 
+    "reaction_key": "music",
+    "processes_win": ["Spotify.exe", "spotifywebhelper.exe"], 
+    "processes_mac": ["Spotify"], 
+    "processes_linux": ["spotify"]
+  },
+  {
+    "name": "Steam Games", 
+    "reaction_key": "game",
+    "processes_win": ["steam.exe", "Steam.exe"], 
+    "processes_mac": ["Steam", "steam_osx"],
+    "processes_linux": ["steam"]
+  },
+  {
+    "name": "Microsoft Outlook", 
+    "reaction_key": "email",
+    "processes_win": ["OUTLOOK.EXE"], 
+    "processes_mac": ["Microsoft Outlook"]
+  },
+  {
+    "name": "Obsidian Notes", 
+    "reaction_key": "notes",
+    "processes_win": ["Obsidian.exe"], 
+    "processes_mac": ["Obsidian"]
+  }
+]
