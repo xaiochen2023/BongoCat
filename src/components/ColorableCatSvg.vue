@@ -12,17 +12,31 @@
     />
 
     <!-- Default Expression (Eyes) -->
-    <g id="cat_expression_default" :style="{ display: isFocused ? 'none' : 'block' }">
+    <g id="cat_expression_default" :style="{ display: currentEmotion === 'neutral' ? 'block' : 'none' }">
       <circle id="cat_eye_left_default" cx="35" cy="45" r="8" :style="{ fill: eyeColor }" />
       <circle id="cat_eye_right_default" cx="65" cy="45" r="8" :style="{ fill: eyeColor }" />
     </g>
     
-    <!-- Focused Expression (Slightly smaller eyes, example) -->
-    <g id="cat_expression_focused" :style="{ display: isFocused ? 'block' : 'none' }">
+    <!-- Focused Expression -->
+    <g id="cat_expression_focused" :style="{ display: currentEmotion === 'focused' ? 'block' : 'none' }">
       <circle id="cat_eye_left_focused" cx="35" cy="45" r="6" :style="{ fill: eyeColor }" />
       <circle id="cat_eye_right_focused" cx="65" cy="45" r="6" :style="{ fill: eyeColor }" />
       <path d="M30 35 Q35 32 40 35" stroke="black" stroke-width="1.5" fill="none" />
       <path d="M60 35 Q65 32 70 35" stroke="black" stroke-width="1.5" fill="none" />
+    </g>
+
+    <!-- Happy Expression -->
+    <g id="cat_expression_happy" :style="{ display: currentEmotion === 'happy' ? 'block' : 'none' }">
+      <path id="cat_eye_left_happy" d="M30 45 Q35 40 40 45" :stroke="eyeColor" stroke-width="2" fill="none" /> 
+      <path id="cat_eye_right_happy" d="M60 45 Q65 40 70 45" :stroke="eyeColor" stroke-width="2" fill="none" /> 
+      <path id="cat_mouth_happy" d="M45 55 Q50 60 55 55" stroke="black" stroke-width="1.5" fill="none" />
+    </g>
+
+    <!-- Sleepy Expression -->
+    <g id="cat_expression_sleepy" :style="{ display: currentEmotion === 'sleepy' ? 'block' : 'none' }">
+      <path id="cat_eye_left_sleepy" d="M30 45 Q35 48 40 45" :stroke="eyeColor" stroke-width="2" fill="none" /> 
+      <path id="cat_eye_right_sleepy" d="M60 45 Q65 48 70 45" :stroke="eyeColor" stroke-width="2" fill="none" />
+      <circle id="cat_mouth_bubble_sleepy" cx="50" cy="60" r="3" fill="lightblue" stroke="blue" stroke-width="0.5" />
     </g>
 
     <!-- Paws Group - structure from idle.svg -->
@@ -59,7 +73,7 @@
     </g>
 
     <text x="10" y="90" font-family="sans-serif" font-size="10" fill="grey">
-      Default SVG (Emotions)
+      Default SVG (All Emotions)
     </text>
   </svg>
 </template>
@@ -71,9 +85,9 @@ import { useAppStore } from '@/stores/app'
 const appStore = useAppStore()
 
 const furColor = computed(() => appStore.furColor)
-const eyeColor = computed(() => appStore.eyeColor) // Used for both default and focused eyes
+const eyeColor = computed(() => appStore.eyeColor) 
 const currentPawStyle = computed(() => appStore.currentPawStyle)
-const isFocused = computed(() => appStore.isUserTypingFocused) // Added
+const currentEmotion = computed(() => appStore.currentEmotion) // Updated
 
 const pawBaseColor = computed(() => {
   return currentPawStyle.value === 'PinkPads Paws' ? appStore.furColor : '#D3D3D3'; 

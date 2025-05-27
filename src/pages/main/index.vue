@@ -108,31 +108,49 @@ const backgroundImage = computed(() => {
   return convertFileSrc(join(modelStore.currentModel.path, 'resources', 'background.png'))
 })
 
-const catImageSrc = computed(() => {
-  const skin = appStore.currentSkinId
-  let action = appStore.catActionState
-  
-  if (showIdleSpriteAnimation.value) {
-    return 'sprite_anim_active'; 
-  }
-
-  if (appStore.isIdle && skin !== 'Default') { 
-    action = 'idle'
-  } else if (appStore.isIdle && skin === 'Default' && !showIdleSpriteAnimation.value) { 
-    action = appStore.catActionState 
-  }
-
-  if (skin === 'Default' && action === 'idle') {
-    return 'use_svg_component'; 
-  }
-  return `/assets/skins/${skin}/${action}.png`;
-})
-
+// --- Updated Cat Image & SVG Visibility Logic ---
 const showColorableSvg = computed(() => {
+  // Show ColorableCatSvg if Default skin is selected, not showing sprite animation,
+  // and the current action state is one of those that has an SVG with expression groups.
   return !showIdleSpriteAnimation.value &&
-         appStore.currentSkinId === 'Default' && 
-         (appStore.catActionState === 'idle' || (appStore.isIdle && appStore.catActionState === 'idle'));
+         appStore.currentSkinId === 'Default' &&
+         ['idle', 'left_paw_down', 'right_paw_down', 'mouse_move'].includes(appStore.catActionState);
 });
+
+const catImageSrc = computed(() => {
+  const skin = appStore.currentSkinId;
+  const action = appStore.catActionState;
+  const emotion = appStore.currentEmotion;
+
+  // Priority 1: Idle Sprite Animation (Default Skin)
+  if (showIdleSpriteAnimation.value) {
+    return 'sprite_anim_active'; // Signals template to hide other cat visuals
+  }
+
+  // Priority 2: Default Skin (SVG with internal emotion handling)
+  // This is handled by showColorableSvg. If true, ColorableCatSvg is rendered.
+  // So, if showColorableSvg is true, this path won't be used for an <img> tag directly.
+  // We just need to ensure it doesn't fall into other categories for Default/SVG states.
+  if (skin === 'Default' && ['idle', 'left_paw_down', 'right_paw_down', 'mouse_move'].includes(action)) {
+    return 'use_svg_component'; // Signals template that ColorableCatSvg will handle it
+  }
+
+  // Priority 3: Image-Based Skins (e.g., "Calico") with "Happy" or "Sleepy" emotions
+  if (skin !== 'Default' && (emotion === 'happy' || emotion === 'sleepy')) {
+    // Note: Asset existence check is not done here; relies on consistent asset creation.
+    // Fallback to neutral action state if specific emotion_action asset is missing is implicitly handled
+    // by the final fallback if this constructed path leads to a 404.
+    // A more robust solution would involve checking asset existence or having a manifest.
+    return `/assets/skins/${skin}/${emotion}_${action}.png`;
+  }
+
+  // Priority 4: Image-Based Skins with "Neutral" or "Focused" (or other unhandled/default) emotions
+  // OR any other case not covered above.
+  // For "focused" on image skins, we currently fall back to neutral.
+  return `/assets/skins/${skin}/${action}.png`;
+});
+// --- End Updated Cat Image & SVG Visibility Logic ---
+
 
 // --- Extended Accessory Logic ---
 type AccessoryCategory = 'head' | 'eyes' | 'neck';
@@ -219,12 +237,13 @@ const reactionIconSrc = computed(() => {
 const reactionIconStyle = computed(() => {
   return {
     position: 'absolute',
-    top: '5px', // Example: top-right corner of cat display area
-    right: '5px', // Example: top-right corner
+    top: '5px', 
+    right: '5px', 
     width: '24px',
     height: '24px',
-    zIndex: 10, // Above all other cat elements
+    zIndex: 10, 
     pointerEvents: 'none',
+    objectFit: 'contain', 
   };
 });
 // --- End App Awareness Reaction Icon Logic ---
@@ -253,9 +272,22 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
     <img :src="backgroundImage" v-if="backgroundImage">
 
     <div class="cat-display-area">
+      <!-- Idle Sprite Animation Player (Priority 1) -->
       <div v-if="showIdleSpriteAnimation" class="idle-animation-player" :style="animationPlayerStyle"></div>
-      <ColorableCatSvg v-else-if="showColorableSvg" class="cat-image" />
-      <img v-else-if="catImageSrc !== 'sprite_anim_active'" :src="catImageSrc" alt="Bongo Cat" class="cat-image" />
+      
+      <!-- Colorable SVG for Default skin's SVG states (Priority 2) -->
+      <ColorableCatSvg 
+        v-else-if="showColorableSvg" 
+        class="cat-image" 
+        :key="appStore.catActionState" <!-- Ensures SVG re-renders if base pose changes -->
+      />
+      <!-- General Image Display for other skins/states (Priority 3 & 4) -->
+      <img 
+        v-else-if="catImageSrc !== 'sprite_anim_active' && catImageSrc !== 'use_svg_component'" 
+        :src="catImageSrc" 
+        alt="Bongo Cat" 
+        class="cat-image" 
+      />
 
       <img
         v-if="showPawOverlay"
@@ -288,7 +320,6 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
         :style="getAccessoryStyle('head', appStore.currentAccessories.head)"
       />
       
-      <!-- NEW: App Awareness Reaction Icon -->
       <img
         v-if="appStore.detectedAppReaction"
         :src="reactionIconSrc"

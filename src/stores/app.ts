@@ -44,10 +44,11 @@ export const useAppStore = defineStore('app', () => {
   const currentPawStyle = ref('Default Paws')
 
   // Emotion system state - not persisted
-  const isUserTypingFocused = ref(false)
+  const currentEmotion = ref('neutral') // Added: 'neutral', 'focused', 'happy', 'sleepy'
+  // isUserTypingFocused is now effectively currentEmotion.value === 'focused'
 
   // Application Awareness state - not persisted
-  const detectedAppReaction = ref<string | null>(null) // Added
+  const detectedAppReaction = ref<string | null>(null)
 
   // Load workshop settings from localStorage
   onMounted(()_ => {
@@ -150,12 +151,14 @@ export const useAppStore = defineStore('app', () => {
     currentPawStyle.value = style
   }
 
-  function setUserTypingFocused(isFocused: boolean) {
-    isUserTypingFocused.value = isFocused
+  // setUserTypingFocused is removed, replaced by setCurrentEmotion
+  
+  function setDetectedAppReaction(reactionType: string | null) {
+    detectedAppReaction.value = reactionType
   }
 
-  function setDetectedAppReaction(reactionType: string | null) { // Added
-    detectedAppReaction.value = reactionType
+  function setCurrentEmotion(emotion: string) { // Added
+    currentEmotion.value = emotion
   }
 
   return {
@@ -180,10 +183,10 @@ export const useAppStore = defineStore('app', () => {
     setCurrentPawStyle,
     catActionState, 
     setCatActionState, 
-    isUserTypingFocused,
-    setUserTypingFocused,
-    detectedAppReaction, // Added
-    setDetectedAppReaction, // Added
+    currentEmotion, // Added
+    setCurrentEmotion, // Added
+    detectedAppReaction,
+    setDetectedAppReaction,
     // Idle animation states & actions
     isIdle,
     setIsIdle,

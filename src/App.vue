@@ -95,20 +95,22 @@ const handleTypingFocus = (event: KeyboardEvent) => {
   // Inactivity timer reset should still happen for any key press
   resetInactivityTimer(); 
 
-  // Focused state logic
+  // Focused state logic using currentEmotion
   const now = Date.now();
   keyPressTimestamps.push(now);
   // Filter out timestamps older than the window
   keyPressTimestamps = keyPressTimestamps.filter(timestamp => now - timestamp < KEYPRESS_WINDOW_MS);
 
   if (keyPressTimestamps.length >= KEYPRESS_THRESHOLD) {
-    if (!appStore.isUserTypingFocused) {
-      appStore.setUserTypingFocused(true);
+    if (appStore.currentEmotion !== 'focused') { // Check current emotion
+      appStore.setCurrentEmotion('focused');    // Use new action
     }
     // Reset timeout to remove focused state
     clearTimeout(focusedStateTimeoutId);
     focusedStateTimeoutId = setTimeout(() => {
-      appStore.setUserTypingFocused(false);
+      if (appStore.currentEmotion === 'focused') { // Only revert if still focused
+        appStore.setCurrentEmotion('neutral');  // Use new action
+      }
       keyPressTimestamps = []; // Reset timestamps after focus is lost
     }, FOCUS_TIMEOUT_MS);
   }
