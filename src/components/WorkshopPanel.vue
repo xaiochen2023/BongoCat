@@ -37,15 +37,39 @@
         </div>
       </div>
 
-      <!-- Accessory Selection Section -->
+      <!-- Accessory Selection Section - Extended -->
       <div class="workshop-section">
         <h4>饰品选择 (Accessory Selection)</h4>
-        <a-radio-group v-model:value="selectedAccessory" @change="onAccessoryChange">
-          <a-radio-button value="None">无 (None)</a-radio-button>
-          <a-radio-button value="Red Collar">红色项圈 (Red Collar)</a-radio-button>
-          <a-radio-button value="Top Hat">礼帽 (Top Hat)</a-radio-button>
-          <a-radio-button value="Sunglasses">太阳镜 (Sunglasses)</a-radio-button>
-        </a-radio-group>
+        
+        <!-- Head Accessories -->
+        <div class="accessory-category">
+          <h5>头部 (Head)</h5>
+          <a-radio-group v-model:value="selectedAccessories.head" @change="onAccessoryCategoryChange('head', $event.target.value)">
+            <a-radio-button value="None">无 (None)</a-radio-button>
+            <a-radio-button value="Top Hat">礼帽 (Top Hat)</a-radio-button>
+            <a-radio-button value="Flower Crown">花环 (Flower Crown)</a-radio-button>
+          </a-radio-group>
+        </div>
+
+        <!-- Eyes Accessories -->
+        <div class="accessory-category">
+          <h5>眼部 (Eyes)</h5>
+          <a-radio-group v-model:value="selectedAccessories.eyes" @change="onAccessoryCategoryChange('eyes', $event.target.value)">
+            <a-radio-button value="None">无 (None)</a-radio-button>
+            <a-radio-button value="Sunglasses">太阳镜 (Sunglasses)</a-radio-button>
+            <a-radio-button value="Monocle">单片眼镜 (Monocle)</a-radio-button>
+          </a-radio-group>
+        </div>
+
+        <!-- Neck Accessories -->
+        <div class="accessory-category">
+          <h5>颈部 (Neck)</h5>
+          <a-radio-group v-model:value="selectedAccessories.neck" @change="onAccessoryCategoryChange('neck', $event.target.value)">
+            <a-radio-button value="None">无 (None)</a-radio-button>
+            <a-radio-button value="Red Collar">红色项圈 (Red Collar)</a-radio-button>
+            <a-radio-button value="Blue Scarf">蓝色围巾 (Blue Scarf)</a-radio-button>
+          </a-radio-group>
+        </div>
       </div>
 
       <!-- Sound Effects Section -->
@@ -67,6 +91,16 @@
           <a-button @click="appStore.setCatActionState('mouse_move')">Mouse Move</a-button>
         </div>
       </div>
+
+      <!-- Paw Style Section -->
+      <div class="workshop-section">
+        <h4>爪子样式 (Paw Style)</h4>
+        <a-radio-group v-model:value="selectedPawStyle" @change="onPawStyleChange">
+          <a-radio-button value="Default Paws">默认爪子 (Default)</a-radio-button>
+          <a-radio-button value="Clawed Paws">尖爪爪子 (Claws)</a-radio-button>
+          <a-radio-button value="PinkPads Paws">粉嫩肉垫 (Pink Pads)</a-radio-button>
+        </a-radio-group>
+      </div>
       <!-- Future workshop controls will be added here -->
     </div>
   </div>
@@ -76,60 +110,51 @@
 import { CloseOutlined } from '@ant-design/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { Button as AButton, RadioGroup as ARadioGroup, RadioButton as ARadioButton, Switch as ASwitch } from 'ant-design-vue'
-import { ref, watch, computed } from 'vue' // Added computed
+import { ref, watch, computed, reactive } from 'vue' // Added reactive
 
 const appStore = useAppStore()
 const selectedSkin = ref(appStore.currentSkinId)
 const selectedFurColor = ref(appStore.furColor)
 const selectedEyeColor = ref(appStore.eyeColor)
-const selectedAccessory = ref(appStore.currentAccessory)
+// Use reactive for selectedAccessories to properly bind to the object structure
+const selectedAccessories = reactive({ ...appStore.currentAccessories })
 const soundEffectsOn = ref(appStore.soundEffectsEnabled)
+const selectedPawStyle = ref(appStore.currentPawStyle)
 
-const isDefaultSkinSelected = computed(() => appStore.currentSkinId === 'Default') // Added
+const isDefaultSkinSelected = computed(() => appStore.currentSkinId === 'Default')
 
 // Watch for changes from the store (e.g., initial load from localStorage)
-watch(() => appStore.currentSkinId, (newSkinId) => {
-  selectedSkin.value = newSkinId
-})
-watch(() => appStore.furColor, (newColor) => {
-  selectedFurColor.value = newColor
-})
-watch(() => appStore.eyeColor, (newColor) => {
-  selectedEyeColor.value = newColor
-})
-watch(() => appStore.currentAccessory, (newAccessory) => {
-  selectedAccessory.value = newAccessory
-})
-watch(() => appStore.soundEffectsEnabled, (newVal) => {
-  soundEffectsOn.value = newVal
-})
+watch(() => appStore.currentSkinId, (newSkinId) => { selectedSkin.value = newSkinId })
+watch(() => appStore.furColor, (newColor) => { selectedFurColor.value = newColor })
+watch(() => appStore.eyeColor, (newColor) => { selectedEyeColor.value = newColor })
+watch(() => appStore.currentAccessories, (newAccessories) => {
+  // Ensure local reactive object is updated when store changes (e.g. on load)
+  selectedAccessories.head = newAccessories.head;
+  selectedAccessories.eyes = newAccessories.eyes;
+  selectedAccessories.neck = newAccessories.neck;
+}, { deep: true })
+watch(() => appStore.soundEffectsEnabled, (newVal) => { soundEffectsOn.value = newVal })
+watch(() => appStore.currentPawStyle, (newStyle) => { selectedPawStyle.value = newStyle })
 
 
-const onSkinChange = () => {
-  appStore.setCurrentSkinId(selectedSkin.value)
-}
-
+const onSkinChange = () => { appStore.setCurrentSkinId(selectedSkin.value) }
 const onFurColorChange = (event: Event) => {
   const target = event.target as HTMLInputElement
   appStore.setFurColor(target.value)
 }
-
 const onEyeColorChange = (event: Event) => {
   const target = event.target as HTMLInputElement
   appStore.setEyeColor(target.value)
 }
 
-const onAccessoryChange = () => {
-  appStore.setCurrentAccessory(selectedAccessory.value)
+// Updated accessory change handler
+const onAccessoryCategoryChange = (category: 'head' | 'eyes' | 'neck', accessoryName: string) => {
+  appStore.setCurrentAccessoryForCategory({ category, accessoryName })
 }
 
-const onSoundEffectsToggle = () => {
-  appStore.setSoundEffectsEnabled(soundEffectsOn.value)
-}
-
-const handleClose = () => {
-  appStore.closeWorkshopPanel()
-}
+const onSoundEffectsToggle = () => { appStore.setSoundEffectsEnabled(soundEffectsOn.value) }
+const onPawStyleChange = () => { appStore.setCurrentPawStyle(selectedPawStyle.value) }
+const handleClose = () => { appStore.closeWorkshopPanel() }
 </script>
 
 <style lang="scss" scoped>

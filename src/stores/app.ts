@@ -13,8 +13,9 @@ interface WorkshopSettings {
   currentSkinId?: string
   furColor?: string
   eyeColor?: string
-  currentAccessory?: string
-  soundEffectsEnabled?: boolean // Added
+  currentAccessories?: { head: string; eyes: string; neck: string; } // Changed
+  soundEffectsEnabled?: boolean
+  currentPawStyle?: string
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -27,7 +28,7 @@ export const useAppStore = defineStore('app', () => {
   const currentSkinId = ref('Default')
   const furColor = ref('#FFA500') // Default Orange
   const eyeColor = ref('#0000FF') // Default Blue
-  const currentAccessory = ref('None')
+  const currentAccessories = ref({ head: "None", eyes: "None", neck: "None" }) // Changed
 
   // Idle animation states - not persisted
   const isIdle = ref(false)
@@ -37,7 +38,16 @@ export const useAppStore = defineStore('app', () => {
   const soundEffectsEnabled = ref(true)
 
   // Cat action state - not persisted
-  const catActionState = ref('idle') // e.g., 'idle', 'left_paw_down', 'right_paw_down', 'mouse_move'
+  const catActionState = ref('idle') 
+
+  // Paw style state
+  const currentPawStyle = ref('Default Paws')
+
+  // Emotion system state - not persisted
+  const isUserTypingFocused = ref(false)
+
+  // Application Awareness state - not persisted
+  const detectedAppReaction = ref<string | null>(null) // Added
 
   // Load workshop settings from localStorage
   onMounted(()_ => {
@@ -54,11 +64,14 @@ export const useAppStore = defineStore('app', () => {
         if (settings.eyeColor) {
           eyeColor.value = settings.eyeColor
         }
-        if (settings.currentAccessory) {
-          currentAccessory.value = settings.currentAccessory
+        if (settings.currentAccessories) { // Changed
+          currentAccessories.value = settings.currentAccessories
         }
-        if (typeof settings.soundEffectsEnabled === 'boolean') { // Added
+        if (typeof settings.soundEffectsEnabled === 'boolean') {
           soundEffectsEnabled.value = settings.soundEffectsEnabled
+        }
+        if (settings.currentPawStyle) {
+          currentPawStyle.value = settings.currentPawStyle
         }
       } catch (e) {
         console.error('Failed to parse workshop settings from localStorage', e)
@@ -69,13 +82,14 @@ export const useAppStore = defineStore('app', () => {
   })
 
   // Watch for changes in workshop settings and save to localStorage
-  watch([currentSkinId, furColor, eyeColor, currentAccessory, soundEffectsEnabled], () => { // Added soundEffectsEnabled
+  watch([currentSkinId, furColor, eyeColor, currentAccessories, soundEffectsEnabled, currentPawStyle], () => { // Changed currentAccessory to currentAccessories
     const settings: WorkshopSettings = {
       currentSkinId: currentSkinId.value,
       furColor: furColor.value,
       eyeColor: eyeColor.value,
-      currentAccessory: currentAccessory.value,
-      soundEffectsEnabled: soundEffectsEnabled.value, // Added
+      currentAccessories: currentAccessories.value, // Changed
+      soundEffectsEnabled: soundEffectsEnabled.value,
+      currentPawStyle: currentPawStyle.value,
     }
     localStorage.setItem(WORKSHOP_STORAGE_KEY, JSON.stringify(settings))
   }, { deep: true })
@@ -106,8 +120,13 @@ export const useAppStore = defineStore('app', () => {
     eyeColor.value = color
   }
 
-  function setCurrentAccessory(accessory: string) {
-    currentAccessory.value = accessory
+  // Removed setCurrentAccessory, replaced by setCurrentAccessoryForCategory
+  function setCurrentAccessoryForCategory(payload: { category: 'head' | 'eyes' | 'neck'; accessoryName: string }) { // Added
+    if (currentAccessories.value.hasOwnProperty(payload.category)) {
+      currentAccessories.value[payload.category] = payload.accessoryName;
+    } else {
+      console.warn(`Invalid accessory category: ${payload.category}`);
+    }
   }
 
   // Actions for idle state
@@ -123,8 +142,20 @@ export const useAppStore = defineStore('app', () => {
     soundEffectsEnabled.value = enabled
   }
 
-  function setCatActionState(action: string) { // Added
+  function setCatActionState(action: string) { 
     catActionState.value = action
+  }
+
+  function setCurrentPawStyle(style: string) {
+    currentPawStyle.value = style
+  }
+
+  function setUserTypingFocused(isFocused: boolean) {
+    isUserTypingFocused.value = isFocused
+  }
+
+  function setDetectedAppReaction(reactionType: string | null) { // Added
+    detectedAppReaction.value = reactionType
   }
 
   return {
@@ -141,12 +172,18 @@ export const useAppStore = defineStore('app', () => {
     setFurColor,
     eyeColor,
     setEyeColor,
-    currentAccessory,
-    setCurrentAccessory,
+    currentAccessories,
+    setCurrentAccessoryForCategory,
     soundEffectsEnabled,
     setSoundEffectsEnabled,
-    catActionState, // Added
-    setCatActionState, // Added
+    currentPawStyle,
+    setCurrentPawStyle,
+    catActionState, 
+    setCatActionState, 
+    isUserTypingFocused,
+    setUserTypingFocused,
+    detectedAppReaction, // Added
+    setDetectedAppReaction, // Added
     // Idle animation states & actions
     isIdle,
     setIsIdle,

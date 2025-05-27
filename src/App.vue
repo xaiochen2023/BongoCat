@@ -21,7 +21,9 @@ import { useAppStore } from './stores/app'
 import { useCatStore } from './stores/cat'
 import { useGeneralStore } from './stores/general'
 import { useModelStore } from './stores/model'
-import { playSound, preloadSounds } from './utils/audio' // Added
+import { playSound, preloadSounds } from './utils/audio'
+import { listen } from '@tauri-apps/api/event' // Added for app awareness
+import type { UnlistenFn } from '@tauri-apps/api/event' // Added for app awareness
 
 const { generateColorVars } = useThemeVars()
 const appStore = useAppStore()
@@ -73,17 +75,71 @@ useEventListener(document, 'mousedown', () => {
     playSound('mouseclick')
   }
 })
-useEventListener(document, 'keydown', (event) => {
-  resetInactivityTimer()
-  // Example: Play sound only for non-modifier keys to avoid too many sounds
+
+// --- Typing Speed Detection for Focused Emotion ---
+const KEYPRESS_WINDOW_MS = 2000; // 2 seconds
+const KEYPRESS_THRESHOLD = 5; // 5 key presses in the window
+const FOCUS_TIMEOUT_MS = 1500; // 1.5 seconds of no typing to lose focus
+
+let keyPressTimestamps: number[] = [];
+let focusedStateTimeoutId: number | undefined = undefined;
+
+const handleTypingFocus = (event: KeyboardEvent) => {
+  // Play sound (if enabled and not a modifier key)
   if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
     if (appStore.soundEffectsEnabled) {
       playSound('keypress')
     }
   }
-})
+
+  // Inactivity timer reset should still happen for any key press
+  resetInactivityTimer(); 
+
+  // Focused state logic
+  const now = Date.now();
+  keyPressTimestamps.push(now);
+  // Filter out timestamps older than the window
+  keyPressTimestamps = keyPressTimestamps.filter(timestamp => now - timestamp < KEYPRESS_WINDOW_MS);
+
+  if (keyPressTimestamps.length >= KEYPRESS_THRESHOLD) {
+    if (!appStore.isUserTypingFocused) {
+      appStore.setUserTypingFocused(true);
+    }
+    // Reset timeout to remove focused state
+    clearTimeout(focusedStateTimeoutId);
+    focusedStateTimeoutId = setTimeout(() => {
+      appStore.setUserTypingFocused(false);
+      keyPressTimestamps = []; // Reset timestamps after focus is lost
+    }, FOCUS_TIMEOUT_MS);
+  }
+};
+
+useEventListener(document, 'keydown', handleTypingFocus)
+// --- End Typing Speed Detection ---
+
 useEventListener(document, 'scroll', resetInactivityTimer)
 // --- End Idle Animation Logic ---
+
+// --- App Awareness Event Listener ---
+let unlistenAppDetection: UnlistenFn | undefined;
+
+onMounted(async () => {
+  try {
+    unlistenAppDetection = await listen<string | null>('app_detection_change', (event) => {
+      console.log('App detection event received:', event.payload); // For debugging
+      appStore.setDetectedAppReaction(event.payload);
+    });
+  } catch (e) {
+    console.error("Failed to listen for app_detection_change event:", e);
+  }
+})
+
+onUnmounted(() => { // Added onUnmounted for cleanup
+  if (unlistenAppDetection) {
+    unlistenAppDetection();
+  }
+});
+// --- End App Awareness Event Listener ---
 
 
 onMounted(async () => {

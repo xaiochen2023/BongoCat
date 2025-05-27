@@ -3,7 +3,7 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { Menu } from '@tauri-apps/api/menu'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { useDebounceFn, useEventListener } from '@vueuse/core'
-import { computed, onUnmounted, ref, watch, reactive } from 'vue' // Added reactive
+import { computed, onUnmounted, ref, watch, reactive } from 'vue'
 
 import { useDevice } from '@/composables/useDevice'
 import { useModel } from '@/composables/useModel'
@@ -57,7 +57,7 @@ watch([() => appStore.isIdle, () => appStore.currentIdleAnimation, () => appStor
   currentFrame.value = 0;
 
   if (isIdle && skinId === 'Default' && currentAnim) {
-    const animKey = currentAnim.replace('Idle: ', ''); // e.g., "Blinking"
+    const animKey = currentAnim.replace('Idle: ', '');
     const config = defaultIdleAnimations[animKey];
 
     if (config) {
@@ -81,7 +81,7 @@ watch([() => appStore.isIdle, () => appStore.currentIdleAnimation, () => appStor
 
 onUnmounted(() => {
   handleDestroy()
-  clearInterval(animationIntervalId); // Clear interval on component unmount
+  clearInterval(animationIntervalId); 
 });
 
 const handleDebounceResize = useDebounceFn(async () => {
@@ -112,54 +112,123 @@ const catImageSrc = computed(() => {
   const skin = appStore.currentSkinId
   let action = appStore.catActionState
   
-  // If showing sprite animation, catImageSrc is not directly used for the Default/idle state
   if (showIdleSpriteAnimation.value) {
-     // When idle animation is playing for Default skin, we don't want the img tag for cat skin to show.
-     // The ColorableCatSvg also has its own v-if. This ensures that if sprite anim is active,
-     // neither ColorableCatSvg nor the base img tag for Default/idle shows.
     return 'sprite_anim_active'; 
   }
 
-  if (appStore.isIdle && skinId !== 'Default') { // For non-default skins, show their static idle.png when app is idle
+  if (appStore.isIdle && skin !== 'Default') { 
     action = 'idle'
-  } else if (appStore.isIdle && skinId === 'Default' && !showIdleSpriteAnimation.value) { 
-    // If app isIdle, skin is Default, but not showing sprite animation (e.g. no currentIdleAnimation string)
-    // then it should fall back to the colorable SVG if action is 'idle', or specific action PNG.
-    action = appStore.catActionState // Keep current action or let showColorableSvg handle 'idle'
+  } else if (appStore.isIdle && skin === 'Default' && !showIdleSpriteAnimation.value) { 
+    action = appStore.catActionState 
   }
 
-
   if (skin === 'Default' && action === 'idle') {
-    return 'use_svg_component'; // Handled by showColorableSvg for Default idle (non-sprite)
+    return 'use_svg_component'; 
   }
   return `/assets/skins/${skin}/${action}.png`;
 })
 
 const showColorableSvg = computed(() => {
-  // Only show if NOT showing sprite animation, and it's Default skin in idle action state
   return !showIdleSpriteAnimation.value &&
          appStore.currentSkinId === 'Default' && 
          (appStore.catActionState === 'idle' || (appStore.isIdle && appStore.catActionState === 'idle'));
 });
 
-const accessoryImageSrc = computed(() => {
-  if (appStore.currentAccessory === 'None') return '';
-  const fileName = appStore.currentAccessory.replace(/\s+/g, '') + '.png';
-  return `/assets/accessories/${fileName}`;
+// --- Extended Accessory Logic ---
+type AccessoryCategory = 'head' | 'eyes' | 'neck';
+
+const getAccessoryImageSrc = (category: AccessoryCategory, accessoryName: string) => {
+  if (accessoryName === 'None') return '';
+  const fileName = accessoryName.replace(/\s+/g, '') + '.png';
+  return `/assets/accessories/${category}/${fileName}`;
+};
+
+const getAccessoryStyle = (category: AccessoryCategory, accessoryName: string) => {
+  const styles: Record<string, any> = {
+    position: 'absolute',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: '50px', 
+    height: 'auto',
+    objectFit: 'contain',
+    pointerEvents: 'none',
+  };
+
+  switch (category) {
+    case 'head':
+      styles.zIndex = 5;
+      switch (accessoryName) {
+        case 'Top Hat': styles.top = '-15px'; styles.width = '50px'; styles.height = '40px'; break;
+        case 'Flower Crown': styles.top = '-20px'; styles.width = '60px'; styles.height = '30px'; break;
+      }
+      break;
+    case 'eyes':
+      styles.zIndex = 4;
+      switch (accessoryName) {
+        case 'Sunglasses': styles.top = '20px'; styles.width = '70px'; styles.height = '25px'; break;
+        case 'Monocle': styles.top = '15px'; styles.left = '35%'; styles.width = '30px'; styles.height = '30px'; break; 
+      }
+      break;
+    case 'neck':
+      styles.zIndex = 3;
+      switch (accessoryName) {
+        case 'Red Collar': styles.top = '65px'; styles.width = '60px'; styles.height = '20px'; break;
+        case 'Blue Scarf': styles.top = '60px'; styles.width = '70px'; styles.height = '35px'; break;
+      }
+      break;
+  }
+  return styles;
+};
+// --- End Extended Accessory Logic ---
+
+
+// --- Paw Overlay Logic ---
+const showPawOverlay = computed(() => {
+  return (appStore.currentSkinId !== 'Default' || (appStore.currentSkinId === 'Default' && appStore.catActionState !== 'idle')) &&
+         appStore.currentPawStyle !== 'Default Paws' &&
+         (appStore.catActionState === 'left_paw_down' || appStore.catActionState === 'right_paw_down');
 });
 
-const accessoryStyle = computed(() => {
+const pawOverlayImageSrc = computed(() => {
+  if (!showPawOverlay.value) return '';
+  const pawStyleDir = appStore.currentPawStyle.replace(/\s+/g, ''); 
+  const side = appStore.catActionState === 'left_paw_down' ? 'left_paw_overlay' : 'right_paw_overlay';
+  return `/assets/paws/${pawStyleDir}/${side}.png`;
+});
+
+const pawOverlayStyle = computed(() => {
   const styles: Record<string, any> = {
-    position: 'absolute', zIndex: 2, left: '50%', transform: 'translateX(-50%)',
-    width: '50px', height: 'auto', objectFit: 'contain', pointerEvents: 'none',
+    position: 'absolute', zIndex: 2, width: '30px', height: '20px',
+    objectFit: 'contain', pointerEvents: 'none',
   };
-  switch (appStore.currentAccessory) {
-    case 'Top Hat': styles.top = '-15px'; styles.width = '50px'; styles.height = '40px'; break;
-    case 'Sunglasses': styles.top = '20px'; styles.width = '70px'; styles.height = '25px'; break;
-    case 'Red Collar': styles.top = '65px'; styles.width = '60px'; styles.height = '20px'; break;
+  if (appStore.catActionState === 'left_paw_down') {
+    styles.left = '25px'; styles.top = '70px';  
+  } else if (appStore.catActionState === 'right_paw_down') {
+    styles.left = '65px'; styles.top = '70px';  
   }
   return styles;
 });
+// --- End Paw Overlay Logic ---
+
+// --- App Awareness Reaction Icon Logic ---
+const reactionIconSrc = computed(() => {
+  if (!appStore.detectedAppReaction) return '';
+  return `/assets/reactions/${appStore.detectedAppReaction}_reaction_icon.png`;
+});
+
+const reactionIconStyle = computed(() => {
+  return {
+    position: 'absolute',
+    top: '5px', // Example: top-right corner of cat display area
+    right: '5px', // Example: top-right corner
+    width: '24px',
+    height: '24px',
+    zIndex: 10, // Above all other cat elements
+    pointerEvents: 'none',
+  };
+});
+// --- End App Awareness Reaction Icon Logic ---
+
 
 function handleWindowDrag() { appWindow.startDragging() }
 async function handleContextmenu(event: MouseEvent) {
@@ -184,20 +253,48 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
     <img :src="backgroundImage" v-if="backgroundImage">
 
     <div class="cat-display-area">
-      <!-- NEW: Idle Sprite Animation Player -->
       <div v-if="showIdleSpriteAnimation" class="idle-animation-player" :style="animationPlayerStyle"></div>
-      
-      <!-- Existing Cat Skin Display (Colorable SVG or Image) -->
       <ColorableCatSvg v-else-if="showColorableSvg" class="cat-image" />
       <img v-else-if="catImageSrc !== 'sprite_anim_active'" :src="catImageSrc" alt="Bongo Cat" class="cat-image" />
 
-      <!-- Accessory Image -->
+      <img
+        v-if="showPawOverlay"
+        :src="pawOverlayImageSrc"
+        alt="Paw Overlay"
+        class="paw-overlay-image" 
+        :style="pawOverlayStyle"
+      />
+
+      <!-- Extended Accessory Images - Rendered in specific order for layering -->
       <img 
-        v-if="appStore.currentAccessory !== 'None'" 
-        :src="accessoryImageSrc" 
-        :alt="appStore.currentAccessory" 
-        class="accessory-image"
-        :style="accessoryStyle"
+        v-if="appStore.currentAccessories.neck !== 'None'" 
+        :src="getAccessoryImageSrc('neck', appStore.currentAccessories.neck)" 
+        :alt="appStore.currentAccessories.neck" 
+        class="accessory-image neck-accessory"
+        :style="getAccessoryStyle('neck', appStore.currentAccessories.neck)"
+      />
+      <img 
+        v-if="appStore.currentAccessories.eyes !== 'None'" 
+        :src="getAccessoryImageSrc('eyes', appStore.currentAccessories.eyes)" 
+        :alt="appStore.currentAccessories.eyes" 
+        class="accessory-image eyes-accessory"
+        :style="getAccessoryStyle('eyes', appStore.currentAccessories.eyes)"
+      />
+      <img 
+        v-if="appStore.currentAccessories.head !== 'None'" 
+        :src="getAccessoryImageSrc('head', appStore.currentAccessories.head)" 
+        :alt="appStore.currentAccessories.head" 
+        class="accessory-image head-accessory"
+        :style="getAccessoryStyle('head', appStore.currentAccessories.head)"
+      />
+      
+      <!-- NEW: App Awareness Reaction Icon -->
+      <img
+        v-if="appStore.detectedAppReaction"
+        :src="reactionIconSrc"
+        alt="Reaction Icon"
+        class="reaction-icon"
+        :style="reactionIconStyle"
       />
     </div>
 
@@ -216,20 +313,27 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
 
   .cat-image {
     display: block; width: 100%; height: 100%;
-    object-fit: contain; position: relative; z-index: 1;
+    object-fit: contain; position: relative; z-index: 1; // Cat base
   }
 
-  .accessory-image {
+  .paw-overlay-image { // zIndex: 2 (from pawOverlayStyle)
+    transform-origin: center;
+  }
+  
+  .accessory-image { // zIndex: 3, 4, 5 (from getAccessoryStyle)
     transform-origin: center; 
   }
 
-  .idle-animation-player { // NEW
-    position: absolute; // Position it like the cat-image
-    left: 0; // Relative to cat-display-area
-    top: 0; // Relative to cat-display-area
-    // width, height, backgroundImage, backgroundPosition are set by 'animationPlayerStyle'
-    z-index: 1; // Same level as cat-image, v-if/v-else handles which is shown
+  .idle-animation-player { 
+    position: absolute; 
+    left: 0; top: 0; 
+    z-index: 1; // Same as cat-image, v-if handles which is shown
     pointer-events: none;
+  }
+
+  .reaction-icon { // NEW - zIndex: 10 (from reactionIconStyle)
+    // position, top, right, width, height are set by reactionIconStyle
+    object-fit: contain;
   }
 }
 </style>
