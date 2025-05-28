@@ -15,7 +15,7 @@ import { useModelStore } from '@/stores/model'
 import { join } from '@/utils/path'
 
 const appWindow = getCurrentWebviewWindow()
-const appStore = useAppStore()
+const appStore = useAppStore() // Already present, ensure it's used for local player state
 const { pressedMouses, mousePosition, pressedLeftKeys, pressedRightKeys } = useDevice()
 const { handleDestroy, handleResize, handleMouseDown, handleMouseMove, handleKeyDown } = useModel()
 const catStore = useCatStore()
@@ -110,8 +110,6 @@ const backgroundImage = computed(() => {
 
 // --- Updated Cat Image & SVG Visibility Logic ---
 const showColorableSvg = computed(() => {
-  // Show ColorableCatSvg if Default skin is selected, not showing sprite animation,
-  // and the current action state is one of those that has an SVG with expression groups.
   return !showIdleSpriteAnimation.value &&
          appStore.currentSkinId === 'Default' &&
          ['idle', 'left_paw_down', 'right_paw_down', 'mouse_move'].includes(appStore.catActionState);
@@ -122,31 +120,22 @@ const catImageSrc = computed(() => {
   const action = appStore.catActionState;
   const emotion = appStore.currentEmotion;
 
-  // Priority 1: Idle Sprite Animation (Default Skin)
   if (showIdleSpriteAnimation.value) {
-    return 'sprite_anim_active'; // Signals template to hide other cat visuals
+    return 'sprite_anim_active'; 
   }
 
-  // Priority 2: Default Skin (SVG with internal emotion handling)
-  // This is handled by showColorableSvg. If true, ColorableCatSvg is rendered.
-  // So, if showColorableSvg is true, this path won't be used for an <img> tag directly.
-  // We just need to ensure it doesn't fall into other categories for Default/SVG states.
-  if (skin === 'Default' && ['idle', 'left_paw_down', 'right_paw_down', 'mouse_move'].includes(action)) {
-    return 'use_svg_component'; // Signals template that ColorableCatSvg will handle it
+  if (showColorableSvg.value) { // If it's Default SVG state, ColorableCatSvg handles it.
+      return 'use_svg_component';
   }
-
-  // Priority 3: Image-Based Skins (e.g., "Calico") with "Happy" or "Sleepy" emotions
+  
+  // For Image-Based Skins (e.g., "Calico")
   if (skin !== 'Default' && (emotion === 'happy' || emotion === 'sleepy')) {
-    // Note: Asset existence check is not done here; relies on consistent asset creation.
-    // Fallback to neutral action state if specific emotion_action asset is missing is implicitly handled
-    // by the final fallback if this constructed path leads to a 404.
-    // A more robust solution would involve checking asset existence or having a manifest.
+    // Attempt to find emotion-specific image for the current action state
+    // Fallback to neutral action state if specific emotion_action asset is missing is implicitly handled by browser 404
     return `/assets/skins/${skin}/${emotion}_${action}.png`;
   }
 
-  // Priority 4: Image-Based Skins with "Neutral" or "Focused" (or other unhandled/default) emotions
-  // OR any other case not covered above.
-  // For "focused" on image skins, we currently fall back to neutral.
+  // Fallback for neutral/focused emotions on image-based skins, or any other non-SVG Default states
   return `/assets/skins/${skin}/${action}.png`;
 });
 // --- End Updated Cat Image & SVG Visibility Logic ---
@@ -272,16 +261,12 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
     <img :src="backgroundImage" v-if="backgroundImage">
 
     <div class="cat-display-area">
-      <!-- Idle Sprite Animation Player (Priority 1) -->
       <div v-if="showIdleSpriteAnimation" class="idle-animation-player" :style="animationPlayerStyle"></div>
-      
-      <!-- Colorable SVG for Default skin's SVG states (Priority 2) -->
       <ColorableCatSvg 
         v-else-if="showColorableSvg" 
         class="cat-image" 
-        :key="appStore.catActionState" <!-- Ensures SVG re-renders if base pose changes -->
+        :key="appStore.catActionState" 
       />
-      <!-- General Image Display for other skins/states (Priority 3 & 4) -->
       <img 
         v-else-if="catImageSrc !== 'sprite_anim_active' && catImageSrc !== 'use_svg_component'" 
         :src="catImageSrc" 
@@ -297,7 +282,6 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
         :style="pawOverlayStyle"
       />
 
-      <!-- Extended Accessory Images - Rendered in specific order for layering -->
       <img 
         v-if="appStore.currentAccessories.neck !== 'None'" 
         :src="getAccessoryImageSrc('neck', appStore.currentAccessories.neck)" 
@@ -329,6 +313,20 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
       />
     </div>
 
+    <!-- Local Music Display (NEW) -->
+    <div class="local-music-display" v-if="appStore.localPlayerSongTitle">
+      <div class="song-info">
+        <p class="song-title">{{ appStore.localPlayerSongTitle }}</p>
+        <p class="song-artist">{{ appStore.localPlayerArtistName }}</p>
+        <p class="song-album" v-if="appStore.localPlayerAlbumName">{{ appStore.localPlayerAlbumName }}</p>
+        <p class="song-source">via {{ appStore.localPlayerSource }}</p>
+      </div>
+    </div>
+    <div class="local-music-error" v-else-if="appStore.localPlayerError">
+      <p>Local Music Error: {{ appStore.localPlayerError }}</p>
+    </div>
+    <!-- End Local Music Display -->
+
     <div v-show="resizing" class="flex items-center justify-center bg-black">
       <span class="text-center text-5xl text-white">重绘中...</span>
     </div>
@@ -344,27 +342,74 @@ function resolveImagePath(key: string, side: 'left' | 'right' = 'left') {
 
   .cat-image {
     display: block; width: 100%; height: 100%;
-    object-fit: contain; position: relative; z-index: 1; // Cat base
+    object-fit: contain; position: relative; z-index: 1; 
   }
 
-  .paw-overlay-image { // zIndex: 2 (from pawOverlayStyle)
+  .paw-overlay-image { 
     transform-origin: center;
   }
   
-  .accessory-image { // zIndex: 3, 4, 5 (from getAccessoryStyle)
+  .accessory-image { 
     transform-origin: center; 
   }
 
   .idle-animation-player { 
     position: absolute; 
     left: 0; top: 0; 
-    z-index: 1; // Same as cat-image, v-if handles which is shown
+    z-index: 1; 
     pointer-events: none;
   }
 
-  .reaction-icon { // NEW - zIndex: 10 (from reactionIconStyle)
-    // position, top, right, width, height are set by reactionIconStyle
+  .reaction-icon { 
     object-fit: contain;
   }
+}
+
+/* NEW Styles for Local Music Display */
+.local-music-display {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  background-color: rgba(0,0,0,0.6);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  display: flex;
+  align-items: center;
+  z-index: 1000; // Ensure it's above other UI elements like workshop button
+  max-width: 250px; // Prevent it from becoming too wide
+  pointer-events: none; // Non-interactive
+}
+
+.song-info p {
+  margin: 0;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.song-title {
+  font-weight: bold;
+}
+
+.song-artist, .song-album, .song-source {
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+
+.local-music-error {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  background-color: rgba(150,0,0,0.7); /* Reddish background for error */
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  z-index: 1000;
+  max-width: 250px;
+  pointer-events: none;
 }
 </style>

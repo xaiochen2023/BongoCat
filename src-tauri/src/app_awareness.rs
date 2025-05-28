@@ -1,12 +1,16 @@
-use serde::{Deserialize, Serialize}; // Added
-use std::collections::HashMap; // For simple precedence
-use std::fs; // Added for reading config file
-use std::path::PathBuf; // Added for path resolution
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use sysinfo::{ProcessExt, System, SystemExt};
 use tauri::Manager;
+use once_cell::sync::Lazy; // Added for LAST_LOCAL_SONG_INFO
+
+// Assuming local_player_manager and its LocalSongInfo are in the crate root or correctly pathed
+use crate::local_player_manager::{self, LocalSongInfo}; // Added
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppDefinition {
@@ -22,8 +26,8 @@ pub struct AppDefinition {
 pub enum DetectedApp {
     Music,
     Game,
-    Email, // Added
-    Notes, // Added
+    Email, 
+    Notes, 
     None,
 }
 
@@ -42,8 +46,8 @@ impl DetectedApp {
         match self {
             DetectedApp::Music => Some("music".to_string()),
             DetectedApp::Game => Some("game".to_string()),
-            DetectedApp::Email => Some("email".to_string()), // Added
-            DetectedApp::Notes => Some("notes".to_string()), // Added
+            DetectedApp::Email => Some("email".to_string()), 
+            DetectedApp::Notes => Some("notes".to_string()), 
             DetectedApp::None => None,
         }
     }
@@ -54,11 +58,8 @@ pub type SharedDetectedAppState = Arc<Mutex<DetectedApp>>;
 fn load_app_definitions<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> Vec<AppDefinition> {
     let config_path = app_handle
         .path()
-        .resolve("app_awareness_config.json", tauri::path::BaseDirectory::Resource) // Assuming config is in src-tauri/ and bundled as a resource
+        .resolve("app_awareness_config.json", tauri::path::BaseDirectory::Resource) 
         .unwrap_or_else(|_| {
-            // Fallback if resolve_path fails (e.g. in tests or different context)
-            // This path is relative to where the executable is run from if not bundled.
-            // For bundled app, BaseDirectory::Resource is more reliable.
             PathBuf::from("app_awareness_config.json") 
         });
 
@@ -79,7 +80,6 @@ fn load_app_definitions<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> 
         }
     }
 
-    // Hardcoded fallbacks
     println!("Using hardcoded app definitions.");
     vec![
         AppDefinition {
@@ -109,15 +109,16 @@ fn load_app_definitions<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) -> 
     ]
 }
 
+// Static state for the last known local song info
+static LAST_LOCAL_SONG_INFO: Lazy<Mutex<Option<LocalSongInfo>>> = Lazy::new(|| Mutex::new(None));
 
 pub fn init_app_awareness<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, app_state: SharedDetectedAppState) {
     let shared_state_clone = app_state.clone();
-    let app_handle_clone = app_handle.clone(); // Clone app_handle for the thread
+    let app_handle_clone = app_handle.clone(); 
 
     thread::spawn(move || {
         let app_definitions = load_app_definitions(&app_handle_clone);
         let mut sys = System::new_all();
-        // Define precedence: lower number = higher precedence
         let precedence: HashMap<String, u8> = [
             ("game".to_string(), 0),
             ("music".to_string(), 1),
@@ -126,6 +127,7 @@ pub fn init_app_awareness<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, ap
         ].iter().cloned().collect();
 
         loop {
+            // --- App Detection Logic (existing) ---
             sys.refresh_processes();
             let mut best_detected_app_key: Option<String> = None;
             let mut current_min_precedence = u8::MAX;
@@ -148,12 +150,11 @@ pub fn init_app_awareness<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, ap
                                 current_min_precedence = app_precedence;
                                 best_detected_app_key = Some(app_def.reaction_key.clone());
                             }
-                            break; // Found a match for this AppDefinition, move to next AppDefinition
+                            break; 
                         }
                     }
                     if best_detected_app_key.as_ref().map_or(false, |k| k == &app_def.reaction_key) && 
                        precedence.get(&app_def.reaction_key).cloned().unwrap_or(u8::MAX) == current_min_precedence {
-                        // If we already found the highest precedence match for this app_def, no need to check other running processes for it
                         break; 
                     }
                 }
@@ -162,17 +163,55 @@ pub fn init_app_awareness<R: tauri::Runtime>(app_handle: tauri::AppHandle<R>, ap
             let final_detected_app = best_detected_app_key
                 .map_or(DetectedApp::None, |key| DetectedApp::from_reaction_key(&key));
 
-            let mut current_state_guard = shared_state_clone.lock().unwrap();
-            if *current_state_guard != final_detected_app {
+            let mut current_app_state_guard = shared_state_clone.lock().unwrap();
+            if *current_app_state_guard != final_detected_app {
                 println!("App detection state changed to: {:?}", final_detected_app.as_str());
-                *current_state_guard = final_detected_app.clone();
+                *current_app_state_guard = final_detected_app.clone();
                 if let Err(e) = app_handle_clone.emit_all("app_detection_change", final_detected_app.as_str()) {
                     eprintln!("Failed to emit app_detection_change event: {}", e);
                 }
             }
-            drop(current_state_guard);
+            drop(current_app_state_guard);
+            // --- End App Detection Logic ---
 
-            thread::sleep(Duration::from_secs(5));
+            // --- Poll Local Music Player (NEW) ---
+            let current_song_result = local_player_manager::get_current_song_from_active_players();
+            let mut last_song_guard = LAST_LOCAL_SONG_INFO.lock().unwrap();
+
+            match current_song_result {
+                Ok(Some(current_song_info)) => {
+                    if *last_song_guard != Some(current_song_info.clone()) {
+                        println!("Local song changed to: {} - {}", current_song_info.title, current_song_info.artist);
+                        *last_song_guard = Some(current_song_info.clone());
+                        if let Err(e) = app_handle_clone.emit_all("local_song_change", Some(current_song_info)) {
+                            eprintln!("Failed to emit local_song_change event (song playing): {}", e);
+                        }
+                    }
+                }
+                Ok(None) => { // Nothing playing from local players
+                    if last_song_guard.is_some() {
+                        println!("Local song stopped playing.");
+                        *last_song_guard = None;
+                        if let Err(e) = app_handle_clone.emit_all("local_song_change", None::<Option<LocalSongInfo>>) {
+                            eprintln!("Failed to emit local_song_change event (song stopped): {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error fetching local song info: {}", e);
+                    if last_song_guard.is_some() { 
+                        println!("Local song error, clearing last known song.");
+                        *last_song_guard = None;
+                        if let Err(e_emit) = app_handle_clone.emit_all("local_song_change", None::<Option<LocalSongInfo>>) {
+                             eprintln!("Failed to emit local_song_change event (error case): {}", e_emit);
+                        }
+                    }
+                }
+            }
+            drop(last_song_guard);
+            // --- End Poll Local Music Player ---
+
+            thread::sleep(Duration::from_secs(5)); // Existing sleep duration
         }
     });
 }

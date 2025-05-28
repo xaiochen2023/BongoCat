@@ -1,7 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// Declare the app_awareness module
+// Declare modules
 mod app_awareness;
+mod spotify_auth;
+mod spotify_player;
+mod local_player_manager;     // Added
+#[cfg(target_os = "macos")]   // Added
+mod macos_music_applescript;  // Added
+#[cfg(target_os = "windows")] // Added
+mod windows_musicbee_file;    // Added
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager; // Required for app_handle()
@@ -29,7 +36,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            app_awareness::get_detected_app_debug
+            app_awareness::get_detected_app_debug,
+            spotify_auth::start_auth_flow // Added start_auth_flow command
             // If bongo_cat_lib registered commands, they need to be added here.
             // For example, if bongo_cat_lib::get_commands() returns a Vec<InvokeHandler<R>>,
             // those would need to be iterated and registered, or ideally, bongo_cat_lib

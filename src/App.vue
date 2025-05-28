@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { error } from '@tauri-apps/plugin-log'
+import { error as logError } from '@tauri-apps/plugin-log' // Renamed to avoid conflict
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { useEventListener } from '@vueuse/core'
 import { ConfigProvider } from 'ant-design-vue'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { isString } from 'es-toolkit'
 import isURL from 'is-url'
-import { onMounted, ref, watch } from 'vue' // Added ref, watch
+import { onMounted, onUnmounted, ref, watch } from 'vue' 
 import { RouterView } from 'vue-router'
 
 import WorkshopButton from '@/components/WorkshopButton.vue'
 import WorkshopPanel from '@/components/WorkshopPanel.vue'
-import { useTauriListen } from './composables/useTauriListen'
+import { useTauriListen } from './composables/useTauriListen' // This seems to be a custom composable, will use direct listen for now
 import { useThemeVars } from './composables/useThemeVars'
 import { useWindowState } from './composables/useWindowState'
 import { LISTEN_KEY } from './constants'
@@ -22,8 +22,7 @@ import { useCatStore } from './stores/cat'
 import { useGeneralStore } from './stores/general'
 import { useModelStore } from './stores/model'
 import { playSound, preloadSounds } from './utils/audio'
-import { listen } from '@tauri-apps/api/event' // Added for app awareness
-import type { UnlistenFn } from '@tauri-apps/api/event' // Added for app awareness
+import { listen, type UnlistenFn } from '@tauri-apps/api/event' // Ensure UnlistenFn is typed if needed
 
 const { generateColorVars } = useThemeVars()
 const appStore = useAppStore()
@@ -34,165 +33,193 @@ const appWindow = getCurrentWebviewWindow()
 const { isRestored, restoreState } = useWindowState()
 
 // --- Idle Animation Logic ---
-const INACTIVITY_TIMEOUT = 5000 // 5 seconds
-const IDLE_ANIMATION_INTERVAL = 3500 // 3.5 seconds
+const INACTIVITY_TIMEOUT_MS = 5000 
+const IDLE_ANIMATION_INTERVAL_MS = 3500 
 const IDLE_ANIMATIONS = ["Idle: Blinking", "Idle: Tail Wagging", "Idle: Ear Twitching"]
+let inactivityTimerId: number | undefined = undefined
+let idleAnimationTimerId: number | undefined = undefined
 
-let inactivityTimer: number | undefined = undefined
-let idleAnimationTimer: number | undefined = undefined
-
-const resetInactivityTimer = () => {
-  clearTimeout(inactivityTimer)
-  if (appStore.isIdle) {
-    appStore.setIsIdle(false)
-  }
-  inactivityTimer = setTimeout(() => {
-    appStore.setIsIdle(true)
-  }, INACTIVITY_TIMEOUT)
-}
-
-watch(() => appStore.isIdle, (isNowIdle) => {
-  if (isNowIdle) {
-    // Start cycling idle animations
-    const playRandomIdleAnimation = () => {
-      const randomIndex = Math.floor(Math.random() * IDLE_ANIMATIONS.length)
-      appStore.setCurrentIdleAnimation(IDLE_ANIMATIONS[randomIndex])
-    }
-    playRandomIdleAnimation() // Play one immediately
-    idleAnimationTimer = setInterval(playRandomIdleAnimation, IDLE_ANIMATION_INTERVAL)
-  } else {
-    // Stop cycling and clear current animation
-    clearInterval(idleAnimationTimer)
-    appStore.setCurrentIdleAnimation(null)
-  }
-})
-
-// Global event listeners to reset inactivity timer and play sounds
-useEventListener(document, 'mousemove', resetInactivityTimer)
-useEventListener(document, 'mousedown', () => {
-  resetInactivityTimer()
-  if (appStore.soundEffectsEnabled) {
-    playSound('mouseclick')
-  }
-})
-
-// --- Typing Speed Detection for Focused Emotion ---
-const KEYPRESS_WINDOW_MS = 2000; // 2 seconds
-const KEYPRESS_THRESHOLD = 5; // 5 key presses in the window
-const FOCUS_TIMEOUT_MS = 1500; // 1.5 seconds of no typing to lose focus
-
+// --- Typing Focus Logic ---
+const KEYPRESS_WINDOW_MS = 2000; 
+const KEYPRESS_THRESHOLD = 5; 
+const FOCUS_TIMEOUT_MS = 1500; 
 let keyPressTimestamps: number[] = [];
 let focusedStateTimeoutId: number | undefined = undefined;
 
-const handleTypingFocus = (event: KeyboardEvent) => {
-  // Play sound (if enabled and not a modifier key)
-  if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
-    if (appStore.soundEffectsEnabled) {
-      playSound('keypress')
+// --- Sleepy Emotion Logic ---
+const LONG_INACTIVITY_DURATION_MS = 60 * 1000; 
+let longInactivityTimeoutId: number | undefined = undefined;
+
+const resetAllActivityTimers = () => {
+  clearTimeout(inactivityTimerId);
+  if (appStore.isIdle) {
+    appStore.setIsIdle(false); 
+  }
+  inactivityTimerId = setTimeout(() => {
+    if (appStore.currentEmotion === 'neutral') {
+       appStore.setIsIdle(true);
+    }
+  }, INACTIVITY_TIMEOUT_MS);
+
+  if (appStore.currentEmotion === 'sleepy') {
+    appStore.setCurrentEmotion('neutral'); 
+  }
+  clearTimeout(longInactivityTimeoutId);
+  longInactivityTimeoutId = setTimeout(() => {
+    appStore.setCurrentEmotion('sleepy');
+  }, LONG_INACTIVITY_DURATION_MS);
+};
+
+watch(() => appStore.isIdle, (isNowIdle) => {
+  clearInterval(idleAnimationTimerId); 
+  idleAnimationTimerId = undefined;
+  if (isNowIdle && appStore.currentEmotion === 'neutral') { 
+    const playRandomIdleAnimation = () => {
+      const randomIndex = Math.floor(Math.random() * IDLE_ANIMATIONS.length);
+      appStore.setCurrentIdleAnimation(IDLE_ANIMATIONS[randomIndex]);
+    };
+    playRandomIdleAnimation();
+    idleAnimationTimerId = setInterval(playRandomIdleAnimation, IDLE_ANIMATION_INTERVAL_MS);
+  } else {
+    appStore.setCurrentIdleAnimation(null); 
+  }
+});
+
+watch(() => appStore.currentEmotion, (newEmotion, oldEmotion) => {
+  if (newEmotion !== 'neutral' && newEmotion !== 'focused') { 
+    if (appStore.isIdle) {
+      appStore.setIsIdle(false); 
+    }
+    if (oldEmotion === 'focused') {
+        clearTimeout(focusedStateTimeoutId);
+        keyPressTimestamps = [];
     }
   }
+  if (newEmotion === 'focused' && appStore.isIdle) {
+      appStore.setIsIdle(false);
+  }
+});
 
-  // Inactivity timer reset should still happen for any key press
-  resetInactivityTimer(); 
+const handleUserActivity = () => {
+  resetAllActivityTimers();
+};
 
-  // Focused state logic using currentEmotion
+const handleTypingFocus = (event: KeyboardEvent) => {
+  if (!event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+    if (appStore.soundEffectsEnabled) playSound('keypress');
+  }
+  resetAllActivityTimers(); 
   const now = Date.now();
   keyPressTimestamps.push(now);
-  // Filter out timestamps older than the window
   keyPressTimestamps = keyPressTimestamps.filter(timestamp => now - timestamp < KEYPRESS_WINDOW_MS);
 
   if (keyPressTimestamps.length >= KEYPRESS_THRESHOLD) {
-    if (appStore.currentEmotion !== 'focused') { // Check current emotion
-      appStore.setCurrentEmotion('focused');    // Use new action
+    if (appStore.currentEmotion !== 'focused') {
+      appStore.setCurrentEmotion('focused');
     }
-    // Reset timeout to remove focused state
     clearTimeout(focusedStateTimeoutId);
     focusedStateTimeoutId = setTimeout(() => {
-      if (appStore.currentEmotion === 'focused') { // Only revert if still focused
-        appStore.setCurrentEmotion('neutral');  // Use new action
+      if (appStore.currentEmotion === 'focused') {
+        appStore.setCurrentEmotion('neutral');
       }
-      keyPressTimestamps = []; // Reset timestamps after focus is lost
+      keyPressTimestamps = [];
     }, FOCUS_TIMEOUT_MS);
   }
 };
 
-useEventListener(document, 'keydown', handleTypingFocus)
-// --- End Typing Speed Detection ---
+useEventListener(document, 'mousemove', handleUserActivity);
+useEventListener(document, 'mousedown', handleUserActivity);
+useEventListener(document, 'keydown', handleTypingFocus); 
+useEventListener(document, 'scroll', handleUserActivity);
 
-useEventListener(document, 'scroll', resetInactivityTimer)
-// --- End Idle Animation Logic ---
-
-// --- App Awareness Event Listener ---
+// --- App Awareness Event Listener (Existing) ---
 let unlistenAppDetection: UnlistenFn | undefined;
 
+// --- Local Song Change Event Listener (NEW) ---
+interface LocalSongInfoPayload {
+  title: string;
+  artist: string;
+  album: string | null; // Matches Rust Option<String>
+  player_source: string;
+}
+// For Result<Option<LocalSongInfo>, String>
+// Ok(Some(data)) -> { Ok: data }
+// Ok(None)       -> { Ok: null }
+// Err(msg)       -> { Err: msg }
+type LocalSongChangeEventPayload = 
+  { Ok: LocalSongInfoPayload | null; Err?: undefined } | 
+  { Err: string; Ok?: undefined };
+
+let unlistenLocalSongChange: UnlistenFn | undefined;
+
+
 onMounted(async () => {
+  // Existing App Detection Listener
   try {
     unlistenAppDetection = await listen<string | null>('app_detection_change', (event) => {
-      console.log('App detection event received:', event.payload); // For debugging
       appStore.setDetectedAppReaction(event.payload);
     });
   } catch (e) {
     console.error("Failed to listen for app_detection_change event:", e);
   }
-})
 
-onUnmounted(() => { // Added onUnmounted for cleanup
-  if (unlistenAppDetection) {
-    unlistenAppDetection();
+  // NEW Local Song Change Listener
+  try {
+    unlistenLocalSongChange = await listen<LocalSongChangeEventPayload>('local_song_change', (event) => {
+      console.log("local_song_change event received:", event.payload); // For debugging
+      const payload = event.payload;
+      if (payload.Ok !== undefined) { // Check if Ok field exists (covers Ok(Some) and Ok(None))
+        if (payload.Ok) { // Ok(Some(data))
+          appStore.setLocalPlayerSongInfo(payload.Ok);
+        } else { // Ok(None)
+          appStore.clearLocalPlayerSongInfo();
+          appStore.setLocalPlayerError(''); // Clear any previous error
+        }
+      } else if (payload.Err) { // Err(msg)
+        appStore.setLocalPlayerError(payload.Err);
+      }
+    });
+  } catch (e) {
+    console.error("Failed to listen for local_song_change event:", e);
   }
-});
-// --- End App Awareness Event Listener ---
 
-
-onMounted(async () => {
+  // Other onMounted logic
   generateColorVars()
-  resetInactivityTimer() // Initialize the timer on mount
-  preloadSounds() // Preload sounds on app mount
-
+  resetAllActivityTimers(); 
+  preloadSounds() 
   await appStore.$tauri.start()
   await modelStore.$tauri.start()
   await catStore.$tauri.start()
   await generalStore.$tauri.start()
-
   restoreState()
 })
 
-useTauriListen(LISTEN_KEY.SHOW_WINDOW, ({ payload }) => {
-  if (appWindow.label !== payload) return
+onUnmounted(() => { 
+  if (unlistenAppDetection) unlistenAppDetection();
+  if (unlistenLocalSongChange) unlistenLocalSongChange(); // NEW: Cleanup local song listener
+  clearTimeout(inactivityTimerId);
+  clearInterval(idleAnimationTimerId);
+  clearTimeout(focusedStateTimeoutId);
+  clearTimeout(longInactivityTimeoutId); 
+});
 
-  showWindow()
-})
-
-useTauriListen(LISTEN_KEY.HIDE_WINDOW, ({ payload }) => {
-  if (appWindow.label !== payload) return
-
-  hideWindow()
-})
+// Original TauriListen composable usage (can be removed if direct listen is preferred for all)
+// useTauriListen(LISTEN_KEY.SHOW_WINDOW, ({ payload }) => { ... });
+// useTauriListen(LISTEN_KEY.HIDE_WINDOW, ({ payload }) => { ... });
 
 useEventListener('unhandledrejection', ({ reason }) => {
   const message = isString(reason) ? reason : JSON.stringify(reason)
-
-  error(message)
+  logError(message) // Use renamed logError
 })
 
 useEventListener('click', (event) => {
   const link = (event.target as HTMLElement).closest('a')
-
   if (!link) return
-
   const { href, target } = link
-
   if (target === '_blank') return
-
   event.preventDefault()
-
   if (!isURL(href)) return
-
   openUrl(href)
-})
-
-onMounted(() => { // Ensure this onMounted for inactivity timer reset is distinct or merged
-  resetInactivityTimer()
 })
 </script>
 

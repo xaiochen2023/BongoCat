@@ -44,11 +44,17 @@ export const useAppStore = defineStore('app', () => {
   const currentPawStyle = ref('Default Paws')
 
   // Emotion system state - not persisted
-  const currentEmotion = ref('neutral') // Added: 'neutral', 'focused', 'happy', 'sleepy'
-  // isUserTypingFocused is now effectively currentEmotion.value === 'focused'
+  const currentEmotion = ref('neutral')
 
   // Application Awareness state - not persisted
   const detectedAppReaction = ref<string | null>(null)
+
+  // Local Music Player state - not persisted
+  const localPlayerSongTitle = ref('') // Added
+  const localPlayerArtistName = ref('') // Added
+  const localPlayerAlbumName = ref<string | null>(null) // Added
+  const localPlayerSource = ref('') // Added
+  const localPlayerError = ref('') // Added
 
   // Load workshop settings from localStorage
   onMounted(()_ => {
@@ -157,8 +163,33 @@ export const useAppStore = defineStore('app', () => {
     detectedAppReaction.value = reactionType
   }
 
-  function setCurrentEmotion(emotion: string) { // Added
+  function setCurrentEmotion(emotion: string) {
     currentEmotion.value = emotion
+  }
+
+  // Actions for Local Music Player
+  function setLocalPlayerSongInfo(payload: { title: string; artist: string; album: string | null; source: string } | null) { // Added
+    if (payload) {
+      localPlayerSongTitle.value = payload.title;
+      localPlayerArtistName.value = payload.artist;
+      localPlayerAlbumName.value = payload.album;
+      localPlayerSource.value = payload.source;
+      localPlayerError.value = ''; // Clear error on new song info
+    } else {
+      clearLocalPlayerSongInfo();
+    }
+  }
+
+  function clearLocalPlayerSongInfo() { // Added
+    localPlayerSongTitle.value = '';
+    localPlayerArtistName.value = '';
+    localPlayerAlbumName.value = null;
+    localPlayerSource.value = '';
+  }
+
+  function setLocalPlayerError(errorMsg: string) { // Added
+    localPlayerError.value = errorMsg;
+    clearLocalPlayerSongInfo();
   }
 
   return {
@@ -183,10 +214,18 @@ export const useAppStore = defineStore('app', () => {
     setCurrentPawStyle,
     catActionState, 
     setCatActionState, 
-    currentEmotion, // Added
-    setCurrentEmotion, // Added
+    currentEmotion, 
+    setCurrentEmotion, 
     detectedAppReaction,
     setDetectedAppReaction,
+    localPlayerSongTitle, // Added
+    localPlayerArtistName, // Added
+    localPlayerAlbumName, // Added
+    localPlayerSource, // Added
+    localPlayerError, // Added
+    setLocalPlayerSongInfo, // Added
+    clearLocalPlayerSongInfo, // Added
+    setLocalPlayerError, // Added
     // Idle animation states & actions
     isIdle,
     setIsIdle,
